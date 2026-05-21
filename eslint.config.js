@@ -1,6 +1,5 @@
 export default [
   {
-    // This tells ESLint to ignore every file in the project
     ignores: ["**/*"],
   },
 ];
