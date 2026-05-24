@@ -72,8 +72,6 @@ export default function AuthPage() {
       return;
     }
 
-    // Attempt to sign in immediately after successful sign-up.
-    // If the project requires email confirmation, this may fail and we'll show the existing message.
     const { error: signInError } = await supabase.auth.signInWithPassword({
       email: signUpEmail,
       password: signUpPassword,

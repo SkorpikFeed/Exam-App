@@ -112,9 +112,9 @@ export default function DecksPage() {
           </h2>
         </div>
         <div className="flex items-center gap-3">
-          <Button asChild variant="outline">
+          {/* <Button asChild variant="outline">
             <Link to="/review">Черга повторення</Link>
-          </Button>
+          </Button> */}
           <DeckDialog
             mode="create"
             trigger={
@@ -242,9 +242,9 @@ export default function DecksPage() {
                 <Progress value={progress} />
               </div>
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                <Button asChild size="sm" variant="outline">
+                {/* <Button asChild size="sm" variant="outline">
                   <Link to="/review">Повторення</Link>
-                </Button>
+                </Button> */}
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button size="sm" variant="destructive">
