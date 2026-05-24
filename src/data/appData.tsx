@@ -1,5 +1,4 @@
 import * as React from "react";
-import { type Card } from "ts-fsrs";
 
 import {
   applyReview,
@@ -7,14 +6,42 @@ import {
   gradeMap,
   type GradeKey,
 } from "../lib/fsrs";
-import { supabase, isSupabaseConfigured } from "../lib/supabase";
-import { formatShortDate, startOfDay } from "../lib/format";
+import { isSupabaseConfigured } from "../lib/supabase";
+import { startOfDay } from "../lib/format";
 import {
   buildActivitySeries,
   buildRetentionSeries,
   computeRetentionRate,
   computeStreak,
 } from "./derived";
+import { buildEmptyActivity, addDaysISO } from "./appData/activity";
+import { mapFsrsSnapshot, serializeFsrs } from "./appData/fsrs-helpers";
+import { ensureProfileRow } from "./appData/profile";
+import { seedTutorialDecks } from "./appData/seed";
+import {
+  claimTutorial,
+  createCardRow,
+  createDeckRow,
+  deleteCardRow,
+  deleteDeckRow,
+  deleteUserRow,
+  fetchCardRows,
+  fetchDeckRows,
+  fetchProfile,
+  fetchRecentUsers,
+  fetchReviewLogRows,
+  getSession,
+  getUser,
+  insertReviewLog,
+  onAuthStateChange,
+  revertTutorial,
+  signOutUser,
+  updateCardById,
+  updateCardRow,
+  updateDeckRow,
+  updateProfileRow,
+  updateUserActiveRow,
+} from "./appData/supabase";
 import type {
   ActivityPoint,
   AppUser,
@@ -25,250 +52,9 @@ import type {
   SystemStats,
   DataStatus,
   AppDataContextValue,
-  ProfileRow,
-  DeckRow,
-  CardRow,
-  ReviewLogRow,
 } from "./types";
 
 const AppDataContext = React.createContext<AppDataContextValue | null>(null);
-
-function mapFsrsSnapshot(snapshot: Record<string, unknown> | null): Card {
-  const fallback = createFsrsCard(new Date());
-  if (!snapshot) {
-    return fallback;
-  }
-  const dueRaw = snapshot.due;
-  const lastRaw = snapshot.last_review;
-  return {
-    ...fallback,
-    ...snapshot,
-    due: dueRaw ? new Date(String(dueRaw)) : fallback.due,
-    last_review: lastRaw ? new Date(String(lastRaw)) : undefined,
-    stability: Number(snapshot.stability ?? fallback.stability),
-    difficulty: Number(snapshot.difficulty ?? fallback.difficulty),
-    elapsed_days: Number(snapshot.elapsed_days ?? fallback.elapsed_days),
-    scheduled_days: Number(snapshot.scheduled_days ?? fallback.scheduled_days),
-    learning_steps: Number(snapshot.learning_steps ?? fallback.learning_steps),
-    reps: Number(snapshot.reps ?? fallback.reps),
-    lapses: Number(snapshot.lapses ?? fallback.lapses),
-    state: Number(snapshot.state ?? fallback.state),
-  } as Card;
-}
-
-function serializeFsrs(card: Card) {
-  return {
-    ...card,
-    due: card.due.toISOString(),
-    last_review: card.last_review ? card.last_review.toISOString() : null,
-  };
-}
-
-function buildEmptyActivity(): ActivityPoint[] {
-  const start = startOfDay(new Date());
-  return Array.from({ length: 30 }).map((_, index) => {
-    const day = new Date(start);
-    day.setDate(start.getDate() - (29 - index));
-    return { date: formatShortDate(day), reviews: 0 };
-  });
-}
-
-type TutorialDeckSeed = {
-  title: string;
-  description: string;
-  subject: string;
-  newLimit: number;
-  cards: Array<{ front: string; back: string; tags: string[] }>;
-};
-
-const tutorialDecks: TutorialDeckSeed[] = [
-  {
-    title: "Навiгацiя",
-    description: "Швидкий гайд по сторiнках та дiях.",
-    subject: "Туторiал",
-    newLimit: 6,
-    cards: [
-      {
-        front: "Де знайти колоди та картки?",
-        back: 'Вiдкрийте вкладку "Колоди" - там створення, редагування та видалення.',
-        tags: ["tutorial", "navigation"],
-      },
-      {
-        front: "Як створити нову колоду?",
-        back: 'На сторiнцi "Колоди" натиснiть "Нова колода" i заповнiть форму.',
-        tags: ["tutorial", "decks"],
-      },
-      {
-        front: "Як додати картку в колоду?",
-        back: 'Вiдкрийте "Картки" у деталях колоди та натиснiть "Додати картку".',
-        tags: ["tutorial", "cards"],
-      },
-      {
-        front: "Як видалити колоду?",
-        back: 'У списку колод натиснiть кнопку "Видалити" i пiдтвердiть.',
-        tags: ["tutorial", "cleanup"],
-      },
-      {
-        front: "Як видалити картку?",
-        back: 'У списку карток натиснiть три кнопки і оберіть опцію "Видалити".',
-        tags: ["tutorial", "cleanup"],
-      },
-    ],
-  },
-  {
-    title: "Аналiтика",
-    description: "Як читати метрики та графiки.",
-    subject: "Туторiал",
-    newLimit: 6,
-    cards: [
-      {
-        front: "Де дивитись аналiтику навчання?",
-        back: 'Вiдкрийте вкладку "Аналітика" - там показники повторень та прогресу.',
-        tags: ["tutorial", "analytics"],
-      },
-      {
-        front: "Що таке активнiсть?",
-        back: "Графiк активностi показує, скiльки повторень було щодня.",
-        tags: ["tutorial", "analytics"],
-      },
-      {
-        front: "Що показує пригадування?",
-        back: "Це iмовiрнiсть пригадування - чим вище, тим краще закрiплено знання.",
-        tags: ["tutorial", "analytics"],
-      },
-    ],
-  },
-  {
-    title: "Як працює алгоритм",
-    description: "Коротко про iнтервальне повторення.",
-    subject: "Туторiал",
-    newLimit: 6,
-    cards: [
-      {
-        front: "Що робить алгоритм повторень?",
-        back: "Вiн планує iнтервали на основi ваших оцiнок, щоб вчитись ефективнiше.",
-        tags: ["tutorial", "fsrs"],
-      },
-      {
-        front: "Чому оцiнки важливi?",
-        back: 'Оцiнки "Знову/Важко/Добре/Легко" допомагають алгоритму пiдiбрати темп.',
-        tags: ["tutorial", "fsrs"],
-      },
-      {
-        front: "Як покращити результати?",
-        back: "Регулярно повторюйте i чесно оцiнюйте картки - так iнтервали стануть точнiшими.",
-        tags: ["tutorial", "fsrs"],
-      },
-    ],
-  },
-];
-
-async function seedTutorialDecks(userId: string) {
-  const titles = tutorialDecks.map((deck) => deck.title);
-  const { data: existing, error: existingError } = await supabase
-    .from("decks")
-    .select("id, title")
-    .eq("user_id", userId)
-    .in("title", titles)
-    .returns<Pick<DeckRow, "id" | "title">[]>();
-
-  if (existingError) {
-    return existingError;
-  }
-
-  const existingTitles = new Set((existing ?? []).map((deck) => deck.title));
-  const missingDecks = tutorialDecks.filter(
-    (deck) => !existingTitles.has(deck.title),
-  );
-
-  if (missingDecks.length === 0) {
-    return null;
-  }
-
-  const { data: decksData, error: deckError } = await supabase
-    .from("decks")
-    .insert(
-      missingDecks.map((deck) => ({
-        user_id: userId,
-        title: deck.title,
-        description: deck.description,
-        subject: deck.subject,
-        new_limit: deck.newLimit,
-      })),
-    )
-    .select()
-    .returns<DeckRow[]>();
-
-  if (deckError || !decksData) {
-    return deckError;
-  }
-
-  const cardsPayload = decksData.flatMap((deckRow) => {
-    const seed = tutorialDecks.find((deck) => deck.title === deckRow.title);
-    if (!seed) {
-      return [];
-    }
-    return seed.cards.map((card) => ({
-      deck_id: deckRow.id,
-      front: card.front,
-      back: card.back,
-      tags: card.tags,
-      fsrs: serializeFsrs(createFsrsCard(new Date())),
-      reps: 0,
-      lapses: 0,
-    }));
-  });
-
-  if (cardsPayload.length === 0) {
-    return null;
-  }
-
-  const { error: cardsError } = await supabase
-    .from("cards")
-    .insert(cardsPayload);
-  return cardsError;
-}
-
-async function ensureProfileRow(user: {
-  id: string;
-  email?: string | null;
-  user_metadata?: { name?: string; role?: string };
-  created_at?: string;
-}) {
-  const fallbackName =
-    user.user_metadata?.name || user.email?.split("@")[0] || "Student";
-
-  const { data: existing, error: existingError } = await supabase
-    .from("profiles")
-    .select("id, role")
-    .eq("id", user.id)
-    .maybeSingle<Pick<ProfileRow, "id" | "role">>();
-
-  if (existingError) {
-    return existingError;
-  }
-
-  if (!existing) {
-    const { error } = await supabase.from("profiles").insert({
-      id: user.id,
-      name: fallbackName,
-      email: user.email ?? null,
-      bio: null,
-      has_tutorial: false,
-      role: (user.user_metadata?.role as AppUser["role"]) ?? "student",
-      active: true,
-      created_at: user.created_at ?? new Date().toISOString(),
-    });
-    return error;
-  }
-
-  const { error } = await supabase
-    .from("profiles")
-    .update({ name: fallbackName, email: user.email ?? null, active: true })
-    .eq("id", user.id);
-
-  return error;
-}
 
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = React.useState<DataStatus>("idle");
@@ -299,8 +85,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setStatus((prev) => (prev === "ready" ? "ready" : "loading"));
     setError(null);
 
-    const { data: sessionData, error: sessionError } =
-      await supabase.auth.getSession();
+    const { data: sessionData, error: sessionError } = await getSession();
 
     if (sessionError) {
       setStatus("error");
@@ -312,8 +97,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     let currentUser = session?.user ?? null;
 
     if (!currentUser) {
-      const { data: userData, error: userError } =
-        await supabase.auth.getUser();
+      const { data: userData, error: userError } = await getUser();
       if (userError) {
         setStatus("error");
         setError(userError.message);
@@ -346,11 +130,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       currentUser.email?.split("@")?.[0] ||
       "Student";
 
-    const profileResult = await supabase
-      .from("profiles")
-      .select("id, name, email, bio, has_tutorial, role, active, created_at")
-      .eq("id", currentUser.id)
-      .single<ProfileRow>();
+    const profileResult = await fetchProfile(currentUser.id);
 
     const roleRaw =
       profileResult.data?.role ??
@@ -376,32 +156,21 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setProfile(resolvedProfile);
 
     if (profileResult.data && !profileResult.data.has_tutorial) {
-      const { data: claimed, error: claimError } = await supabase
-        .from("profiles")
-        .update({ has_tutorial: true })
-        .eq("id", currentUser.id)
-        .eq("has_tutorial", false)
-        .select("id");
+      const { data: claimed, error: claimError } = await claimTutorial(
+        currentUser.id,
+      );
 
       if (!claimError && claimed && claimed.length > 0) {
         const seedError = await seedTutorialDecks(currentUser.id);
         if (seedError) {
-          await supabase
-            .from("profiles")
-            .update({ has_tutorial: false })
-            .eq("id", currentUser.id);
+          await revertTutorial(currentUser.id);
         } else {
           setProfile((prev) => (prev ? { ...prev, hasTutorial: true } : prev));
         }
       }
     }
 
-    const deckResult = await supabase
-      .from("decks")
-      .select("id, user_id, title, description, subject, new_limit, created_at")
-      .eq("user_id", currentUser.id)
-      .order("created_at", { ascending: false })
-      .returns<DeckRow[]>();
+    const deckResult = await fetchDeckRows(currentUser.id);
 
     if (deckResult.error) {
       setStatus("error");
@@ -412,14 +181,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     let deckRows = deckResult.data ?? [];
 
     if (deckRows.length === 0) {
-      const refreshedDecks = await supabase
-        .from("decks")
-        .select(
-          "id, user_id, title, description, subject, new_limit, created_at",
-        )
-        .eq("user_id", currentUser.id)
-        .order("created_at", { ascending: false })
-        .returns<DeckRow[]>();
+      const refreshedDecks = await fetchDeckRows(currentUser.id);
       if (!refreshedDecks.error) {
         deckRows = refreshedDecks.data ?? [];
       }
@@ -438,13 +200,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
     const deckIds = mappedDecks.map((deck) => deck.id);
     const cardResult = deckIds.length
-      ? await supabase
-          .from("cards")
-          .select(
-            "id, deck_id, front, back, tags, fsrs, created_at, last_review, reps, lapses",
-          )
-          .in("deck_id", deckIds)
-          .returns<CardRow[]>()
+      ? await fetchCardRows(deckIds)
       : { data: [], error: null };
 
     if (cardResult.error) {
@@ -473,12 +229,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
     setCards(mappedCards);
 
-    const logsResult = await supabase
-      .from("review_logs")
-      .select("id, card_id, deck_id, rating, reviewed_at")
-      .eq("user_id", currentUser.id)
-      .gte("reviewed_at", addDaysISO(startOfDay(new Date()), -90))
-      .returns<ReviewLogRow[]>();
+    const logsResult = await fetchReviewLogRows(
+      currentUser.id,
+      addDaysISO(startOfDay(new Date()), -90),
+    );
 
     const reviewLogs: ReviewLog[] = (logsResult.data ?? []).map((log) => ({
       id: log.id,
@@ -500,12 +254,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       setStreak(0);
     }
 
-    const usersResult = await supabase
-      .from("profiles")
-      .select("id, name, email, role, active, created_at")
-      .order("created_at", { ascending: false })
-      .limit(20)
-      .returns<ProfileRow[]>();
+    const usersResult = await fetchRecentUsers();
 
     if (!usersResult.error) {
       setUsers(
@@ -538,8 +287,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (!isSupabaseConfigured) {
       return;
     }
-    const { data: subscription } = supabase.auth.onAuthStateChange(() => {
-      refresh();
+    const { data: subscription } = onAuthStateChange(async () => {
+      await refresh();
     });
     return () => {
       subscription?.subscription.unsubscribe();
@@ -570,19 +319,16 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         return updated;
       }
 
-      await supabase
-        .from("cards")
-        .update({
-          fsrs: serializeFsrs(record.card),
-          last_review: record.card.last_review
-            ? record.card.last_review.toISOString()
-            : now.toISOString(),
-          reps: record.card.reps,
-          lapses: nextLapses,
-        })
-        .eq("id", card.id);
+      await updateCardById(card.id, {
+        fsrs: serializeFsrs(record.card),
+        last_review: record.card.last_review
+          ? record.card.last_review.toISOString()
+          : now.toISOString(),
+        reps: record.card.reps,
+        lapses: nextLapses,
+      });
 
-      await supabase.from("review_logs").insert({
+      await insertReviewLog({
         card_id: card.id,
         deck_id: card.deckId,
         user_id: userId,
@@ -599,7 +345,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     if (!isSupabaseConfigured) {
       return;
     }
-    await supabase.auth.signOut();
+    await signOutUser();
   }, []);
 
   const createDeck = React.useCallback(
@@ -608,22 +354,18 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         return null;
       }
 
-      const { data: currentUserData } = await supabase.auth.getUser();
+      const { data: currentUserData } = await getUser();
       if (currentUserData.user) {
         await ensureProfileRow(currentUserData.user);
       }
 
-      const { data, error } = await supabase
-        .from("decks")
-        .insert({
-          user_id: userId,
-          title: deck.title,
-          description: deck.description,
-          subject: deck.subject,
-          new_limit: deck.newLimit,
-        })
-        .select()
-        .single<DeckRow>();
+      const { data, error } = await createDeckRow({
+        user_id: userId,
+        title: deck.title,
+        description: deck.description,
+        subject: deck.subject,
+        new_limit: deck.newLimit,
+      });
 
       if (error || !data) {
         return null;
@@ -657,13 +399,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       if (deck.subject !== undefined) updates.subject = deck.subject;
       if (deck.newLimit !== undefined) updates.new_limit = deck.newLimit;
 
-      const { data, error } = await supabase
-        .from("decks")
-        .update(updates)
-        .eq("id", id)
-        .eq("user_id", userId)
-        .select()
-        .single<DeckRow>();
+      const { data, error } = await updateDeckRow(id, userId, updates);
 
       if (error || !data) {
         return null;
@@ -690,11 +426,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         return false;
       }
 
-      const { error } = await supabase
-        .from("decks")
-        .delete()
-        .eq("id", id)
-        .eq("user_id", userId);
+      const { error } = await deleteDeckRow(id, userId);
 
       if (error) {
         return false;
@@ -719,19 +451,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       }
 
       const fsrs = createFsrsCard(new Date());
-      const { data, error } = await supabase
-        .from("cards")
-        .insert({
-          deck_id: card.deckId,
-          front: card.front,
-          back: card.back,
-          tags: card.tags,
-          fsrs: serializeFsrs(fsrs),
-          reps: 0,
-          lapses: 0,
-        })
-        .select()
-        .single<CardRow>();
+      const { data, error } = await createCardRow({
+        deck_id: card.deckId,
+        front: card.front,
+        back: card.back,
+        tags: card.tags,
+        fsrs: serializeFsrs(fsrs),
+        reps: 0,
+        lapses: 0,
+      });
 
       if (error || !data) {
         return null;
@@ -767,12 +495,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       if (card.back !== undefined) updates.back = card.back;
       if (card.tags !== undefined) updates.tags = card.tags;
 
-      const { data, error } = await supabase
-        .from("cards")
-        .update(updates)
-        .eq("id", id)
-        .select()
-        .single<CardRow>();
+      const { data, error } = await updateCardRow(id, updates);
 
       if (error || !data) {
         return null;
@@ -802,7 +525,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
-    const { error } = await supabase.from("cards").delete().eq("id", id);
+    const { error } = await deleteCardRow(id);
 
     if (error) {
       return false;
@@ -818,10 +541,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         return false;
       }
 
-      const { error } = await supabase
-        .from("profiles")
-        .update({ name: nextProfile.name, bio: nextProfile.bio })
-        .eq("id", userId);
+      const { error } = await updateProfileRow(userId, {
+        name: nextProfile.name,
+        bio: nextProfile.bio,
+      });
 
       if (error) {
         return false;
@@ -848,10 +571,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         return false;
       }
 
-      const { error } = await supabase
-        .from("profiles")
-        .update({ active })
-        .eq("id", id);
+      const { error } = await updateUserActiveRow(id, active);
 
       if (error) {
         return false;
@@ -868,7 +588,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       return false;
     }
 
-    const { error } = await supabase.from("profiles").delete().eq("id", id);
+    const { error } = await deleteUserRow(id);
 
     if (error) {
       return false;
@@ -942,10 +662,4 @@ export function useAppData() {
     throw new Error("useAppData must be used within AppDataProvider");
   }
   return context;
-}
-
-function addDaysISO(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next.toISOString();
 }

@@ -1,7 +1,7 @@
 import { State } from "ts-fsrs";
 
 import { addDays, formatShortDate, startOfDay } from "../lib/format";
-import type { ActivityPoint, CardItem, ReviewLog } from "./types";
+import type { ActivityPoint, CardItem, Deck, ReviewLog } from "./types";
 
 const DAY_MS = 86400000;
 
@@ -11,6 +11,42 @@ export function getCardsByDeck(deckId: string, cards: CardItem[]): CardItem[] {
 
 export function getDueCards(cards: CardItem[], now = new Date()): CardItem[] {
   return cards.filter((card) => card.fsrs.due.getTime() <= now.getTime());
+}
+
+export function buildReviewQueue(
+  cards: CardItem[],
+  decks: Deck[],
+  now = new Date(),
+  totalLimit = 8,
+): CardItem[] {
+  const dueCards = getDueCards(cards, now);
+  const newLimitByDeck = new Map(
+    decks.map((deck) => [deck.id, deck.newLimit ?? 8]),
+  );
+  const newCounts = new Map<string, number>();
+  const queue: CardItem[] = [];
+
+  for (const card of dueCards) {
+    if (card.fsrs.state !== State.New) {
+      queue.push(card);
+      if (queue.length >= totalLimit) {
+        break;
+      }
+      continue;
+    }
+
+    const limit = newLimitByDeck.get(card.deckId) ?? 8;
+    const used = newCounts.get(card.deckId) ?? 0;
+    if (used < limit) {
+      queue.push(card);
+      newCounts.set(card.deckId, used + 1);
+      if (queue.length >= totalLimit) {
+        break;
+      }
+    }
+  }
+
+  return queue;
 }
 
 export function getUpcomingSchedule(

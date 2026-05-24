@@ -9,10 +9,6 @@ create table if not exists public.profiles (
   created_at timestamptz default now()
 );
 
-alter table public.profiles add column if not exists email text;
-alter table public.profiles add column if not exists bio text;
-alter table public.profiles add column if not exists has_tutorial boolean default false;
-
 create table if not exists public.decks (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references public.profiles (id) on delete cascade,
@@ -44,11 +40,6 @@ create table if not exists public.review_logs (
   rating text not null,
   reviewed_at timestamptz default now()
 );
-
-alter table public.profiles enable row level security;
-alter table public.decks enable row level security;
-alter table public.cards enable row level security;
-alter table public.review_logs enable row level security;
 
 create or replace function public.is_admin()
 returns boolean

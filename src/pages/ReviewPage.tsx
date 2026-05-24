@@ -5,7 +5,7 @@ import { CheckCircle2, RefreshCcw, Timer } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Progress } from "../components/ui/progress";
 import { useAppData } from "../data/appData";
-import { getDueCards } from "../data/derived";
+import { buildReviewQueue } from "../data/derived";
 import type { CardItem } from "../data/types";
 import { gradeLabels, type GradeKey } from "../lib/fsrs";
 import {
@@ -31,9 +31,9 @@ export default function ReviewPage() {
 
   useEffect(() => {
     if (status === "ready" && queue.length === 0) {
-      setQueue(getDueCards(cards).slice(0, 8));
+      setQueue(buildReviewQueue(cards, decks));
     }
-  }, [status, cards, queue.length]);
+  }, [status, cards, decks, queue.length]);
 
   const deckMap = useMemo(
     () => new Map(decks.map((deck) => [deck.id, deck.title])),
@@ -47,7 +47,7 @@ export default function ReviewPage() {
   const duration = formatDurationMinutes((Date.now() - startedAt) / 60000);
 
   const resetSession = () => {
-    setQueue(getDueCards(cards).slice(0, 8));
+    setQueue(buildReviewQueue(cards, decks));
     setIndex(0);
     setFlipped(false);
     setLog({ again: 0, hard: 0, good: 0, easy: 0 });
