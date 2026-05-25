@@ -87,30 +87,23 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
     const { data: sessionData, error: sessionError } = await getSession();
 
-    // Якщо це помилка відсутності сесії, просто ігноруємо її (користувач гість)
     if (sessionError) {
-      const msg = sessionError.message.toLowerCase();
-      if (!msg.includes("session missing") && !msg.includes("refresh token")) {
-        setStatus("error");
-        setError(sessionError.message);
-        return;
-      }
+      setStatus("error");
+      setError(sessionError.message);
+      return;
     }
 
-    let currentUser = sessionData?.session?.user ?? null;
+    const session = sessionData.session;
+    let currentUser = session?.user ?? null;
 
     if (!currentUser) {
       const { data: userData, error: userError } = await getUser();
-
       if (userError) {
-        const msg = userError.message.toLowerCase();
-        if (!msg.includes("session missing") && !msg.includes("auth")) {
-          setStatus("error");
-          setError(userError.message);
-          return;
-        }
+        setStatus("error");
+        setError(userError.message);
+        return;
       }
-      currentUser = userData?.user ?? null;
+      currentUser = userData.user ?? null;
     }
 
     if (!currentUser) {
@@ -295,7 +288,9 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     const { data: subscription } = onAuthStateChange(async () => {
-      await refresh();
+      setTimeout(() => {
+        void refresh();
+      }, 0);
     });
     return () => {
       subscription?.subscription.unsubscribe();
