@@ -13,6 +13,7 @@ import {
   SunMedium,
 } from "lucide-react";
 
+import { useEffect } from "react";
 import { Button } from "../ui/button";
 import {
   DropdownMenu,
@@ -42,13 +43,18 @@ export default function AppShell() {
   const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const { profile, decks, cards, signOut } = useAppData();
+  const { status, profile, decks, cards, signOut } = useAppData();
   const dueToday = getDueCards(cards).length;
   const badgeLabel = "MVP";
 
+  useEffect(() => {
+    if (status === "unauthenticated" || (status === "error" && !profile)) {
+      navigate("/auth", { replace: true });
+    }
+  }, [status, navigate]);
   const handleSignOut = async () => {
-    await signOut();
-    navigate("/auth");
+    signOut();
+    window.location.href = "/auth";
   };
 
   return (
