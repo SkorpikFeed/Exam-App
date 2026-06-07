@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Sparkles, TrendingUp } from "lucide-react";
 
 import { Button } from "../components/ui/button";
@@ -28,6 +28,11 @@ export default function AuthPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const handleContinueAsDemo = () => {
+    window.localStorage.setItem("demo-mode", "true");
+    navigate("/", { replace: true });
+  };
+
   const handleSignIn = async () => {
     if (!isSupabaseConfigured) {
       setErrorMessage("Supabase ще не налаштовано.");
@@ -43,6 +48,7 @@ export default function AuthPage() {
     if (error) {
       setErrorMessage(error.message);
     } else {
+      window.localStorage.removeItem("demo-mode");
       await refresh();
       navigate("/");
     }
@@ -84,6 +90,7 @@ export default function AuthPage() {
           : "Акаунт створено. Тепер можна увійти.",
       );
     } else {
+      window.localStorage.removeItem("demo-mode");
       await refresh();
       navigate("/");
     }
@@ -215,8 +222,12 @@ export default function AuthPage() {
             <Button className="w-full" onClick={handleSignIn} disabled={busy}>
               Увійти
             </Button>
-            <Button asChild variant="outline" className="w-full">
-              <Link to="/">Продовжити як демо</Link>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={handleContinueAsDemo}
+            >
+              Продовжити як демо
             </Button>
           </TabsContent>
 

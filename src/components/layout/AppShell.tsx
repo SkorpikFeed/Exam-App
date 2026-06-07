@@ -44,17 +44,24 @@ export default function AppShell() {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const { status, profile, decks, cards, signOut } = useAppData();
+  const isDemoMode =
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("demo-mode") === "true";
   const dueToday = getDueCards(cards).length;
   const badgeLabel = "MVP";
 
   useEffect(() => {
-    if (status === "unauthenticated" || (status === "error" && !profile)) {
+    if (
+      !isDemoMode &&
+      (status === "unauthenticated" || (status === "error" && !profile))
+    ) {
       navigate("/auth", { replace: true });
     }
-  }, [status, navigate]);
+  }, [status, navigate, profile, isDemoMode]);
   const handleSignOut = async () => {
-    signOut();
-    window.location.href = "/auth";
+    window.localStorage.removeItem("demo-mode");
+    await signOut();
+    navigate("/auth", { replace: true });
   };
 
   return (
